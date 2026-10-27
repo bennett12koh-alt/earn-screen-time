@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#4f46e5">
+<link rel="manifest" href="manifest.json">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Screen Time">
+<title>Earn Screen Time</title>
+<style>
+:root{--bg:#f4f6fb;--card:#fff;--text:#16181d;--muted:#667;--border:#dde1ea;--accent:#4f46e5;--accent-h:#4338ca;--ok:#16a34a;--bad:#dc2626;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1115;--card:#1a1d24;--text:#f1f3f7;--muted:#9aa3b2;--border:#2d323d}}
+:root[data-theme="dark"]{--bg:#0f1115;--card:#1a1d24;--text:#f1f3f7;--muted:#9aa3b2;--border:#2d323d}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,Arial,sans-serif;padding:16px;display:flex;justify-content:center}
+.wrap{width:100%;max-width:480px;display:flex;flex-direction:column;gap:14px}
+.card{background:var(--card);border:1px solid var(--border);border-radius:18px;padding:20px}
+h1{font-size:1.35rem;margin:0 0 4px}
+h2{font-size:1rem;margin:0 0 12px}
+.muted{color:var(--muted);font-size:.9rem}
+.bank{text-align:center}
+.time{font-size:3.2rem;font-weight:700;font-variant-numeric:tabular-nums;color:var(--ok);margin:6px 0 14px}
+.time.run{color:var(--accent)}
+.btn{width:100%;padding:14px;border:0;border-radius:12px;background:var(--accent);color:#fff;font-size:1.05rem;font-weight:600;cursor:pointer}
+.btn:hover{background:var(--accent-h)}
+.btn:disabled{opacity:.45;cursor:not-allowed}
+.btn.alt{background:transparent;color:var(--text);border:1px solid var(--border)}
+.task{display:flex;align-items:center;gap:12px;padding:12px 0;border-top:1px solid var(--border)}
+.task:first-of-type{border-top:0}
+.task .name{flex:1;min-width:0}
+.task .name b{display:block;font-weight:600}
+.task.done .name b{text-decoration:line-through;color:var(--muted)}
+.pill{font-size:.85rem;font-weight:700;color:var(--ok);white-space:nowrap}
+.chk{padding:8px 14px;border:1px solid var(--border);border-radius:999px;background:var(--bg);color:var(--text);font-weight:600;cursor:pointer}
+.task.done .chk{background:var(--ok);border-color:var(--ok);color:#fff;cursor:default}
+.add{display:flex;gap:8px;margin-top:6px}
+.add input{min-width:0;padding:10px 12px;border:1px solid var(--border);border-radius:10px;background:var(--bg);color:var(--text);font-size:.95rem}
+.add input.n{flex:1}.add input.m{width:64px}
+.add button{padding:10px 14px;border:0;border-radius:10px;background:var(--text);color:var(--bg);font-weight:600;cursor:pointer}
+.del{background:none;border:0;color:var(--muted);cursor:pointer;font-size:1.1rem}
+.thumb{width:44px;height:44px;object-fit:cover;border-radius:8px;border:1px solid var(--border)}
+.toast{min-height:1.2em;font-size:.88rem;color:var(--muted);text-align:center}
+</style>
+</head>
+<body>
+<input type="file" id="cam" accept="image/*" capture="environment" hidden>
+<div class="wrap">
+  <div class="card bank">
+    <h1>Earn Screen Time</h1>
+    <div class="muted">Finish a task, take a photo of the finished work, bank minutes, then spend them.</div>
+    <div class="time" id="clock">00:00</div>
+    <button class="btn" id="go" type="button">Start screen time</button>
+    <div class="toast" id="toast"></div>
+  </div>
+
+  <div class="card">
+    <h2>Today’s tasks</h2>
+    <div id="tasks"></div>
+    <div class="add">
+      <input class="n" id="newName" type="text" placeholder="New task…">
+      <input class="m" id="newMin" type="number" min="1" max="120" placeholder="min">
+      <button id="addBtn" type="button">Add</button>
+    </div>
+  </div>
+
+  <div class="card">
+    <button class="btn alt" id="reset" type="button">Reset everything</button>
+    <div class="muted" style="margin-top:10px">Tasks reset each day. Photos are saved on this device only, for a parent to check. This works on the honor system and does not control any device.</div>
+  </div>
+</div>
+
+<script>
+var KEY='earn-screen-time-v1';
+var DEFAULT_TASKS=[
+  {id:'t1',name:'Homework',min:30},
+  {id:'t2',name:'Read for 20 minutes',min:15},
+  {id:'t3',name:'Clean your room',min:15},
+  {id:'t4',name:'Exercise or play outside',min:20},
+  {id:'t5',name:'Help with chores',min:10}
+];
+var state={tasks:DEFAULT_TASKS.slice(),done:{},bank:0};
+var running=false,endAt=0,timer=null;
+var $=function(id){return document.getElementById(id);};
+
+function today(){var d=new Date();return d.getFullYear()+'-'+(d.getMonth()+1)+'-'+d.getDate();}
+function load(){try{var s=localStorage.getItem(KEY);if(s){var p=JSON.parse(s);if(p&&p.tasks){state=p;}}}catch(e){}}
+function save(){try{localStorage.setItem(KEY,JSON.stringify(state));}catch(e){}}
+function fmt(s){s=Math.max(0,Math.round(s));var h=Math.floor(s/3600),m=Math.floor((s%3600)/60),r=s%60;
+  var mm=(m<10?'0':'')+m,rr=(r<10?'0':'')+r;return h>0?h+':'+mm+':'+rr:mm+':'+rr;}
+function toast(t){$('toast').textContent=t;}
+function esc(t){var d=document.createElement('div');d.textContent=t;return d.innerHTML;}
+
+function render(){
+  var html='';
+  state.tasks.forEach(function(t){
+    var isDone=state.done[t.id]===today();
+    html+='<div class="task'+(isDone?' done':'')+'">'+((isDone&&state.proof&&state.proof[t.id])?'<img class="thumb" alt="Proof photo" src="'+state.proof[t.id]+'">':'')+'<div class="name"><b>'+esc(t.name)+'</b></div>'+
+      '<span class="pill">+'+t.min+' min</span>'+
+      '<button class="chk" type="button" data-id="'+t.id+'"'+(isDone?' disabled':'')+'>'+(isDone?'Done ✓':'📷 Take photo')+'</button>'+
+      '<button class="del" type="button" data-del="'+t.id+'" aria-label="Remove task">×</button></div>';
+  });
+  $('tasks').innerHTML=html||'<div class="muted">No tasks yet. Add one below.</div>';
+  var secs=running?(endAt-Date.now())/1000:state.bank;
+  $('clock').textContent=fmt(secs);
+  $('clock').className='time'+(running?' run':'');
+  $('go').textContent=running?'Stop and save remaining time':'Start screen time';
+  $('go').disabled=!running&&state.bank<=0;
+}
+
+$('tasks').addEventListener('click',function(e){
+  var c=e.target.closest('[data-id]'),d=e.target.closest('[data-del]');
+  if(c){
+    var t=state.tasks.filter(function(x){return x.id===c.dataset.id;})[0];
+    if(t&&state.done[t.id]!==today()){
+      pendingId=t.id;$('cam').value='';$('cam').click();
+    }
+  }else if(d){
+    state.tasks=state.tasks.filter(function(x){return x.id!==d.dataset.del;});
+    save();render();
+  }
+});
+
+var pendingId=null;
+function shrink(file,cb){
+  var r=new FileReader();
+  r.onload=function(){
+    var im=new Image();
+    im.onload=function(){
+      var s=Math.min(1,360/Math.max(im.width,im.height));
+      var c=document.createElement('canvas');c.width=Math.round(im.width*s);c.height=Math.round(im.height*s);
+      c.getContext('2d').drawImage(im,0,0,c.width,c.height);
+      cb(c.toDataURL('image/jpeg',0.6));
+    };
+    im.onerror=function(){cb(null);};
+    im.src=r.result;
+  };
+  r.onerror=function(){cb(null);};
+  r.readAsDataURL(file);
+}
+function complete(id,img){
+  var t=state.tasks.filter(function(x){return x.id===id;})[0];
+  if(!t||state.done[id]===today())return;
+  state.done[id]=today();
+  state.proof=state.proof||{};state.proof[id]=img;
+  if(running){endAt+=t.min*60000;}else{state.bank+=t.min*60;}
+  save();toast('Photo saved. +'+t.min+' minutes earned!');render();
+}
+$('cam').addEventListener('change',function(){
+  var f=this.files&&this.files[0];
+  if(!f||!pendingId)return;
+  var id=pendingId;toast('Checking photo…');
+  shrink(f,function(img){
+    if(!img){toast('Could not read that photo. Try again.');return;}
+    complete(id,img);
+  });
+});
+
+$('addBtn').addEventListener('click',function(){
+  var n=$('newName').value.trim(),m=parseInt($('newMin').value,10);
+  if(!n||!(m>0)){toast('Enter a task name and minutes.');return;}
+  state.tasks.push({id:'c'+Date.now(),name:n,min:Math.min(m,120)});
+  $('newName').value='';$('newMin').value='';save();toast('');render();
+});
+
+function tick(){
+  var left=(endAt-Date.now())/1000;
+  if(left<=0){stop(true);return;}
+  $('clock').textContent=fmt(left);
+}
+function stop(timeUp){
+  clearInterval(timer);
+  state.bank=running?Math.max(0,(endAt-Date.now())/1000):state.bank;
+  running=false;document.title='Earn Screen Time';
+  save();toast(timeUp?'Time is up! Earn more by finishing tasks.':'Saved. Come back any time.');render();
+}
+$('go').addEventListener('click',function(){
+  if(running){stop(false);return;}
+  if(state.bank<=0)return;
+  endAt=Date.now()+state.bank*1000;running=true;toast('Enjoy your screen time!');
+  timer=setInterval(tick,1000);render();
+});
+
+var resetArmed=false,resetTimer=null;
+$('reset').addEventListener('click',function(){
+  var b=$('reset');
+  if(!resetArmed){
+    resetArmed=true;b.textContent='Tap again to confirm reset';
+    resetTimer=setTimeout(function(){resetArmed=false;b.textContent='Reset everything';},4000);
+    return;
+  }
+  clearTimeout(resetTimer);resetArmed=false;b.textContent='Reset everything';
+  clearInterval(timer);running=false;endAt=0;document.title='Earn Screen Time';
+  state.done={};state.proof={};state.bank=0;
+  save();toast('Everything was reset.');render();
+});
+
+load();render();
+if('serviceWorker' in navigator && (location.protocol==='https:'||location.hostname==='localhost')){
+  window.addEventListener('load',function(){
+    try{navigator.serviceWorker.register('sw.js').catch(function(){});}catch(e){}
+  });
+}
+</script>
+</body>
+</html>
