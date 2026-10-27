@@ -1,0 +1,10 @@
+{
+  "name": "Earn Screen Time",
+  "short_name": "Screen Time",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#f4f6fb",
+  "theme_color": "#4f46e5"
+}
